@@ -14,7 +14,7 @@ import random
 
 import pyspark.sql.functions as F
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DateType, FloatType, BooleanType
-from pyspark.sql.functions import col,struct,when
+from pyspark.sql.functions import col,struct,when, lit
 from pyspark.sql.window import Window
 
 
@@ -30,21 +30,35 @@ df_tracks = spark.read.parquet(f"{folder_path}/spotify_datamodel/df_tracks/")
 
 # COMMAND ----------
 
-df_tracks.printSchema()
-
-# COMMAND ----------
-
 tracks = (
     df_tracks
-    .withColumn('year', F.year('release_date'))
-    .withColumn('age', F.round(F.months_between(F.current_date(), col('release_date') )/F.lit(12),0) )   
+    .drop('key')
+    .drop('mode')
+    .drop('time_signature')
     .toPandas()
     # .show()
 )
 
 # COMMAND ----------
 
-tracks.corr()
+df_tracks_corr = tracks.corr()
+df_tracks_corr.index.name = 'track_component'
+df_tracks_corr.reset_index(inplace=True)
+df_tracks_corr_unpivot = pd.melt(df_tracks_corr, id_vars = "track_component", value_vars = ['popularity', 'duration_ms', 'explicit', 'danceability', 'energy',
+    'loudness', 'speechiness', 'acousticness',
+       'instrumentalness', 'liveness', 'valence', 'tempo',
+       'age'])
+
+# COMMAND ----------
+
+df_tracks_corr = spark.createDataFrame(df_tracks_corr_unpivot) 
+
+(
+    df_tracks_corr
+    .withColumn("track_component_sort", when( col('track_component') == 'popularity', lit(0)).otherwise(lit(1)))
+    .withColumn("variable_sort", when( col('variable') == 'popularity', lit(0)).otherwise(lit(1)))
+    .write.mode("overwrite").format("parquet").save(f"{folder_path}/spotify_datamodel/df_tracks_corr/")
+)
 
 # COMMAND ----------
 
